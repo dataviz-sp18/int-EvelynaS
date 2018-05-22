@@ -1,0 +1,204 @@
+---
+title: "Interactive vizualization"
+author: "Evelyn Sanchez"
+date: "5/21/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(sp)
+library(rgdal)
+library(readr)
+library(tidyverse)
+library(crosstalk)
+library (plotly)
+library(dplyr)
+library(ggplot2)
+library(rasterVis)
+library(doBy)
+library(sp)
+library(maptools)
+if (!require(gpclib)) install.packages("gpclib", type="source")
+gpclibPermit()
+library(forcats)
+library(ggmap)
+library(viridis)
+library(stringi)
+
+```
+
+
+```{r}
+homicide_mex <- read_csv("perfiles_homicidios.csv")
+
+homicide_mex$edo_code[homicide_mex$edo_code=="01" ] <- "1"
+homicide_mex$edo_code[homicide_mex$edo_code=="02" ] <- "2"
+homicide_mex$edo_code[homicide_mex$edo_code=="03" ] <- "3"
+homicide_mex$edo_code[homicide_mex$edo_code=="04" ] <- "4"
+homicide_mex$edo_code[homicide_mex$edo_code=="05" ] <- "5"
+homicide_mex$edo_code[homicide_mex$edo_code=="06" ] <- "6"
+homicide_mex$edo_code[homicide_mex$edo_code=="07" ] <- "7"
+homicide_mex$edo_code[homicide_mex$edo_code=="08" ] <- "8"
+homicide_mex$edo_code[homicide_mex$edo_code=="09" ] <- "9"
+
+unique(homicide_mex$edo_code)
+
+
+```
+
+
+```{r}
+
+dir_main = "/Users/eves/Documents/"
+dir_adm = paste(dir_main,"Spring 2018/Data Viz/Visual experiment/MEX_adm", sep="")
+mex_shp1 <- readOGR(dsn = dir_adm, layer = "MEX_adm1")
+
+homicide_mex$edo_code <- as.numeric(homicide_mex$edo_code)
+homicide_mex$pob <- as.numeric(homicide_mex$pob)
+
+unique(homicide_mex$edo_code)
+
+homicide_mex_sub <-homicide_mex %>%
+  group_by(edo_code) %>%
+  summarise(Hom_edo = sum(homtot))
+  
+homicide_mex_sub$edo_code <- as.numeric(homicide_mex_sub$edo_code)
+mex_shp2_fort <- fortify(mex_shp1, region="ID_1") %>%
+  mutate(id=as.numeric(id))
+
+map_data_hom <- mex_shp2_fort %>%
+  left_join(homicide_mex_sub, by = c("id"= "edo_code"))
+
+unique(map_data_hom$Hom_edo)
+```
+
+```{r}
+#Theme functions for maps and color map
+#source: https://timogrossenbacher.ch/2016/12/beautiful-thematic-maps-with-ggplot2-only/
+
+theme_map <- function(...) {
+  theme_minimal() +
+  theme(
+    text = element_text(family="Helvetica", size = 10, color = "#22211d"),
+    axis.line = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #panel.grid.minor = element_line(color = "#ebebe5", size = 0.2),
+    panel.grid.major = element_line(color = "#ebebe5", size = 0.2),
+    panel.grid.minor = element_blank(),
+    #plot.background = element_rect(fill = "#f5f5f2", color = NA), 
+    #panel.background = element_rect(fill = "#f5f5f2", color = NA), 
+    #legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.border = element_blank(),
+    ...
+  )
+}
+
+
+no_classes <- 5
+labels <- c()
+
+homm_quantiles <- quantile(map_data_hom$Hom_edo, 
+                      probs = seq(0, 1, length.out = no_classes + 1), na.rm = TRUE)
+
+labels <- c()
+for(idx in 1:length(homm_quantiles)){
+  labels <- c(labels, paste0(round(homm_quantiles[idx], 2), 
+                             " – ", 
+                             round(homm_quantiles[idx + 1], 2)))
+}
+
+labels <- labels[1:length(labels)-1]
+
+map_data_hom$Hom_edo_quantiles <- cut(map_data_hom$Hom_edo, 
+                                     breaks = homm_quantiles, 
+                                     labels = labels, 
+                                     include.lowest = T)
+
+#colnames(homicide_mex_sub)[10] <- "name"
+#homicide_mex_sub$Hom_edo <-
+
+#map_data <- map_data_hom  %>%
+  #left_join(homicide_mex_sub, by = c("id"= "edo_code"))
+
+
+
+
+map_hom_edo<- ggplot() +
+        #  polygons with data
+        geom_polygon(data = map_data_hom, aes(fill = Hom_edo_quantiles,
+                                          x = long, 
+                                          y = lat, 
+                                          group = group)) +
+        # rayon outline
+        geom_path(data = map_data_hom, aes(x = long, 
+                                            y = lat, 
+                                            group = group), 
+                  color = "grey", size = 0.1) +
+        
+        # for projection
+        coord_equal() +
+      
+        # add the previously defined basic theme + color
+        theme_map() +
+    
+        # labels
+        labs(x = NULL, 
+             y = NULL, 
+             title = "Homicide Rate", 
+             subtitle = "From 2011 to 2018", 
+             caption = "Source: NASA GLDAS") +
+   theme(legend.position = "bottom") +
+        scale_fill_viridis(
+          option = "magma",
+          discrete = T,
+          direction = -1,
+          name = "Homicide rate",
+          guide = guide_legend(
+          keyheight = unit(3, units = "mm"),
+          keywidth = unit(6, units = "mm"),
+          title.position = 'top',
+          reverse=F,
+          title.hjust = 0.5,
+          label.hjust = 0.5
+          ))
+ 
+ 
+  ggsave("sh.png",
+        plot = last_plot(),
+        device = "png")
+
+```
+
+
+```{r}
+ggplotly(map_hom_edo) %>%
+  highlight(
+    "plotly_hover",
+    selected = attrs_selected(line = list(color = "black"))
+) %>%
+  widgetframe::frameWidget()
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+
+```
+
+
